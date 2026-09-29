@@ -6,10 +6,9 @@ import Groq from 'groq-sdk';
  */
 
 // Initialize Groq client
-const groq = new Groq({
-  apiKey: import.meta.env.VITE_GROQ_API_KEY,
-  dangerouslyAllowBrowser: true // Required for browser-based calls (not recommended for production!)
-});
+// Runs on the server, so the API key never reaches the browser
+const apiKey = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY
+const groq = apiKey ? new Groq({ apiKey }) : null
 
 /**
  * Categorize a customer support message using Groq AI
@@ -19,6 +18,7 @@ const groq = new Groq({
  */
 export async function categorizeMessage(message) {
   try {
+    if (!groq) throw new Error('GROQ_API_KEY is not set')
     const response = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",
       messages: [

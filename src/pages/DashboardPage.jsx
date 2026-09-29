@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { loadHistory } from '../api'
 
 function DashboardPage() {
   const [stats, setStats] = useState({
@@ -10,12 +11,7 @@ function DashboardPage() {
   const [categoryData, setCategoryData] = useState([])
   const [urgencyData, setUrgencyData] = useState({ High: 0, Medium: 0, Low: 0 })
 
-  useEffect(() => {
-    loadDashboardData()
-  }, [])
-
-  const loadDashboardData = () => {
-    const history = JSON.parse(localStorage.getItem('triageHistory') || '[]')
+  const loadDashboardData = (history) => {
     const today = new Date().toDateString()
     const todayMessages = history.filter(item => 
       new Date(item.timestamp).toDateString() === today
@@ -46,6 +42,12 @@ function DashboardPage() {
     })
     setUrgencyData(urgency)
   }
+
+  useEffect(() => {
+    loadHistory()
+      .then(loadDashboardData)
+      .catch(error => console.error('Error loading dashboard:', error))
+  }, [])
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">

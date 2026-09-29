@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { categorizeMessage } from '../utils/llmHelper'
-import { calculateUrgency } from '../utils/urgencyScorer'
-import { getRecommendedAction } from '../utils/templates'
+import { Link } from 'react-router-dom'
+import { api } from '../api'
 
 function AnalyzePage() {
   const [message, setMessage] = useState('')
@@ -28,30 +27,10 @@ function AnalyzePage() {
     setResults(null)
     
     try {
-      // Run categorization (LLM call)
-      const { category, reasoning } = await categorizeMessage(message)
-      
-      // Calculate urgency (rule-based)
-      const urgency = calculateUrgency(message)
-      
-      // Get recommended action (template-based)
-      const recommendedAction = getRecommendedAction(category)
-      
-      const analysisResult = {
-        message,
-        category,
-        urgency,
-        recommendedAction,
-        reasoning,
-        timestamp: new Date().toISOString()
-      }
-
-      setResults(analysisResult)
-
-      // Save to history
-      const history = JSON.parse(localStorage.getItem('triageHistory') || '[]')
-      history.push(analysisResult)
-      localStorage.setItem('triageHistory', JSON.stringify(history))
+      // The server categorizes (LLM), scores urgency, picks the recommended
+      // action, and saves the result as an Open ticket for this company
+      const { ticket } = await api.createTicket(message)
+      setResults(ticket)
     } catch (error) {
       console.error('Error analyzing message:', error)
       alert('Error analyzing message. Please try again.')
@@ -127,7 +106,13 @@ function AnalyzePage() {
         {/* Results Section */}
         {results && (
           <div className="bg-white rounded-lg shadow-md p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Analysis Results</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-1">Analysis Results</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Saved as ticket #{results.id} (Open).{' '}
+              <Link to="/portal" className="text-blue-600 hover:underline font-semibold">
+                Assign a responder in the Portal
+              </Link>
+            </p>
             
             <div className="space-y-4">
               <div>
