@@ -1,6 +1,38 @@
 import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 
+const howItWorksSteps = [
+  { title: 'Paste', description: 'Copy a customer message into the Analyze page.' },
+  { title: 'Analyze', description: 'AI sorts it into a category and the app scores its urgency.' },
+  { title: 'Review', description: 'Check the category, urgency, suggested next step, and AI reasoning.' },
+  { title: 'Track', description: 'Every result is saved to History and summarized on the Dashboard.' },
+]
+
+const categoryDescriptions = [
+  { name: 'Billing Issue', description: 'Payments, charges, invoices, refunds, or subscriptions.' },
+  { name: 'Technical Problem', description: 'Errors, outages, slow pages, or features not working.' },
+  { name: 'Feature Request', description: 'Ideas and suggestions for improving the product.' },
+  { name: 'General Inquiry', description: 'Questions, feedback, and anything else.' },
+]
+
+const urgencyDescriptions = [
+  {
+    name: 'High',
+    className: 'bg-red-100 text-red-800',
+    description: 'Customer is blocked or losing money, such as an outage, a login failure, or a double charge. Respond first.',
+  },
+  {
+    name: 'Medium',
+    className: 'bg-yellow-100 text-yellow-800',
+    description: 'Something is broken or slow, but the customer can still work. Respond the same day.',
+  },
+  {
+    name: 'Low',
+    className: 'bg-green-100 text-green-800',
+    description: 'Questions, suggestions, and thank-you notes. Respond when time allows.',
+  },
+]
+
 function HomePage() {
   const [stats, setStats] = useState({ total: 0, today: 0 })
   const [recentActivity, setRecentActivity] = useState([])
@@ -39,6 +71,62 @@ function HomePage() {
             built around boosting team efficiency and enabling companies to handle more customer 
             volume without hiring additional support staff.
           </p>
+        </div>
+
+        {/* How It Works */}
+        <div className="bg-white rounded-lg shadow-md p-8 mb-6">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">What This Tool Does</h2>
+          <p className="text-gray-700 mb-6">
+            Paste in a message from a customer and Relay AI gives your support team a first pass
+            at triage: what kind of message it is, how quickly it needs attention, and a suggested
+            next step. This helps your team answer the most important messages first.
+          </p>
+
+          <h3 className="text-lg font-semibold text-gray-900 mb-3">How it works</h3>
+          <ol className="grid grid-cols-4 gap-4 mb-6">
+            {howItWorksSteps.map((step, index) => (
+              <li key={step.title} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <div className="text-sm font-bold text-blue-600 mb-1">Step {index + 1}</div>
+                <div className="font-semibold text-gray-900 mb-1">{step.title}</div>
+                <div className="text-sm text-gray-600">{step.description}</div>
+              </li>
+            ))}
+          </ol>
+
+          <div className="grid grid-cols-2 gap-6 mb-6">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-3">Message categories</h3>
+              <ul className="space-y-2">
+                {categoryDescriptions.map((cat) => (
+                  <li key={cat.name} className="text-sm text-gray-700">
+                    <span className="inline-block bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-semibold mr-2">
+                      {cat.name}
+                    </span>
+                    {cat.description}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-3">Urgency levels</h3>
+              <ul className="space-y-2">
+                {urgencyDescriptions.map((level) => (
+                  <li key={level.name} className="text-sm text-gray-700">
+                    <span className={`inline-block px-2 py-0.5 rounded font-semibold mr-2 ${level.className}`}>
+                      {level.name}
+                    </span>
+                    {level.description}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-900">
+            <span className="font-semibold">Please note:</span> Results are an automated first pass.
+            A team member should review each message before responding to the customer.
+          </div>
         </div>
 
         {/* Stats Cards */}
