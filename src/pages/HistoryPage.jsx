@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
+import { Link } from 'react-router-dom'
+import { loadHistory } from '../api'
 
 function HistoryPage() {
   const [history, setHistory] = useState([])
@@ -8,19 +10,9 @@ function HistoryPage() {
 
   useEffect(() => {
     loadHistory()
+      .then(setHistory)
+      .catch(error => console.error('Error loading history:', error))
   }, [])
-
-  const loadHistory = () => {
-    const savedHistory = JSON.parse(localStorage.getItem('triageHistory') || '[]')
-    setHistory(savedHistory)
-  }
-
-  const clearHistory = () => {
-    if (window.confirm('Are you sure you want to clear all history?')) {
-      localStorage.setItem('triageHistory', '[]')
-      setHistory([])
-    }
-  }
 
   const sortedHistory = [...history].sort((a, b) => 
     a.message.localeCompare(b.message)
@@ -41,14 +33,13 @@ function HistoryPage() {
               <h1 className="text-2xl font-bold text-gray-900">Analysis History</h1>
               <p className="text-gray-600">View and manage past message analyses</p>
             </div>
-            {history.length > 0 && (
-              <button
-                onClick={clearHistory}
-                className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 font-semibold"
-              >
-                Clear All
-              </button>
-            )}
+            {/* History is now shared company records, so it is managed in the portal instead of cleared */}
+            <Link
+              to="/portal"
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-semibold"
+            >
+              Manage in Portal
+            </Link>
           </div>
 
           {/* Filter Buttons */}

@@ -11,14 +11,16 @@ Support teams waste time manually reading and triaging customer messages. This t
 ## Tech Stack
 
 - **Frontend**: React + Vite + Tailwind CSS
-- **AI**: Groq API (Llama 3.3 70B - Free tier)
-- **Runtime**: Browser-based (local development only)
+- **Backend**: Node.js + Express API (`server/`)
+- **Database**: SQLite (built into Node 22+), stored in `server/data/relay.db`
+- **Auth**: Email and password login with httpOnly session cookies
+- **AI**: Groq API (Llama 3.3 70B - Free tier), called from the server
 
 ## Setup Instructions
 
 ### Prerequisites
 
-- Node.js (v16 or higher)
+- Node.js (v22.13 or higher, for the built-in SQLite module)
 - npm or yarn
 - Groq API key (FREE - get from https://console.groq.com)
 
@@ -44,8 +46,10 @@ Support teams waste time manually reading and triaging customer messages. This t
    
    Edit `.env.local` and add your Groq API key:
    ```
-   VITE_GROQ_API_KEY=gsk_your-actual-key-here
+   GROQ_API_KEY=gsk_your-actual-key-here
    ```
+
+   Only the server reads this key, so it never reaches the browser.
    
    Get your FREE API key from: https://console.groq.com/keys
    
@@ -56,7 +60,43 @@ Support teams waste time manually reading and triaging customer messages. This t
    npm run dev
    ```
    
-   The app will be available at `http://localhost:5173`
+   This starts the API on `http://localhost:3001` and the app on `http://localhost:5173`.
+   On first run the server creates the database with two demo companies:
+
+   | Email | Company |
+   |---|---|
+   | maria@acme.test, sam@acme.test | Acme Outfitters |
+   | priya@brightside.test, leo@brightside.test | Brightside Dental |
+
+   The password for every demo account is `relay123`. Delete `server/data/` to reset the data.
+
+5. **Run the API tests**
+   ```bash
+   npm test
+   ```
+
+## Company Portal
+
+Log in to see the **Portal** page for your company:
+
+- Your company name
+- **Open and pending tickets**, each with the date and time created, status, and assigned responder.
+  Change the status or responder and click Save to store the change.
+- **Message history and resolutions** for resolved tickets. A resolution is required to mark a ticket resolved.
+
+Every API query is filtered by the logged-in user's company, so users only ever see their own company's data.
+
+### API
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/auth/login` | Log in with `{ email, password }` |
+| POST | `/api/auth/logout` | Log out |
+| GET | `/api/auth/me` | Current user and company |
+| GET | `/api/tickets?status=` | The company's tickets, optionally by status |
+| POST | `/api/tickets` | Analyze `{ message }` and save it as an Open ticket |
+| PATCH | `/api/tickets/:id` | Update `status`, `responderId`, and/or `resolution` |
+| GET | `/api/responders` | The company's team members |
 
 ## How It Works
 
@@ -67,7 +107,7 @@ Support teams waste time manually reading and triaging customer messages. This t
    - **Urgency Scoring** (Rule-based): Applies simple rules to determine urgency
    - **Recommendation** (Template-based): Maps category to a recommended action
 4. **Display Results**: Shows category, urgency tag, recommended action, and AI reasoning
-5. **History**: All analyses are saved to localStorage and viewable in the History tab
+5. **History**: Each analysis is saved in the database as a ticket for your company, viewable in the History tab and the Portal
 
 
 ## Example Test Messages

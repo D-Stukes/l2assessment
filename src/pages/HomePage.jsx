@@ -1,26 +1,34 @@
 import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import { loadHistory } from '../api'
+import { useAuth } from '../auth/AuthContext'
 
 function HomePage() {
+  const { user } = useAuth()
   const [stats, setStats] = useState({ total: 0, today: 0 })
   const [recentActivity, setRecentActivity] = useState([])
 
   useEffect(() => {
-    // Load stats from localStorage
-    const history = JSON.parse(localStorage.getItem('triageHistory') || '[]')
-    const today = new Date().toDateString()
-    const todayCount = history.filter(item => 
-      new Date(item.timestamp).toDateString() === today
-    ).length
+    // Stats come from the logged-in company's tickets
+    if (!user) return
 
-    setStats({
-      total: history.length,
-      today: todayCount
-    })
+    loadHistory()
+      .then(history => {
+        const today = new Date().toDateString()
+        const todayCount = history.filter(item =>
+          new Date(item.timestamp).toDateString() === today
+        ).length
 
-    // Get recent 3 items
-    setRecentActivity(history.slice(-3).reverse())
-  }, [])
+        setStats({
+          total: history.length,
+          today: todayCount
+        })
+
+        // Get recent 3 items
+        setRecentActivity(history.slice(-3).reverse())
+      })
+      .catch(error => console.error('Error loading stats:', error))
+  }, [user])
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
