@@ -1,9 +1,29 @@
 import Groq from 'groq-sdk';
 
 /**
- * LLM Helper for categorizing customer support messages
- * Using Groq API for AI-powered categorization
+ * LLM Helper for triaging customer support messages.
+ *
+ * Layered strategy (first success wins):
+ *   1. Primary AI   — openai/gpt-oss-120b
+ *   2. Retry        — same model, one more attempt
+ *   3. Backup AI    — openai/gpt-oss-20b
+ *   4. Keyword fallback — local, always flagged "Needs human review"
+ *
+ * Every AI attempt must return STRICT JSON with category, urgency,
+ * recommendedAction and reasoning, or it is treated as a failure and
+ * the next layer is tried.
  */
+
+const PRIMARY_MODEL = 'openai/gpt-oss-120b';
+const BACKUP_MODEL = 'openai/gpt-oss-20b';
+
+const VALID_CATEGORIES = [
+  'Billing Issue',
+  'Technical Problem',
+  'Feature Request',
+  'General Inquiry',
+];
+const VALID_URGENCY = ['High', 'Medium', 'Low'];
 
 // Initialize Groq client
 const groq = new Groq({
@@ -11,49 +31,108 @@ const groq = new Groq({
   dangerouslyAllowBrowser: true // Required for browser-based calls (not recommended for production!)
 });
 
+const SYSTEM_PROMPT = `You are a customer-support triage assistant.
+Classify each message and respond with STRICT JSON only — no prose, no code fences.
+
+Return exactly these fields:
+{
+  "category": one of ${JSON.stringify(VALID_CATEGORIES)},
+  "urgency": one of ${JSON.stringify(VALID_URGENCY)},
+  "recommendedAction": a specific next step for a support agent (one sentence),
+  "reasoning": a brief explanation of the category and urgency
+}
+
+Urgency is defined by BUSINESS IMPACT, not tone or punctuation:
+- "High": broad or revenue-blocking impact — many/all customers affected,
+  payments or checkout failing, a core workflow down, login/lockout for many,
+  security/data/legal exposure, or a hard deadline.
+- "Medium": a real problem affecting one or a few users, with a workaround
+  or no immediate revenue/security impact.
+- "Low": questions, feature requests, cosmetic issues, or praise — no
+  functional blockage.
+
+Judge the actual situation. Words like "urgent" or "asap" alone do not make
+something High unless there is real impact. Negations matter: "not urgent"
+is not an escalation.`;
+
+function buildUserPrompt(message) {
+  return `Customer message:\n"""\n${message}\n"""\n\nRespond with the JSON object only.`;
+}
+
+/** Parse and validate a model's JSON response; throw on anything malformed. */
+function parseAiResult(content) {
+  if (!content) throw new Error('Empty response');
+
+  // Tolerate accidental code fences around the JSON.
+  const cleaned = content
+    .trim()
+    .replace(/^```(?:json)?/i, '')
+    .replace(/```$/, '')
+    .trim();
+
+  const data = JSON.parse(cleaned); // throws if not valid JSON
+
+  if (!VALID_CATEGORIES.includes(data.category)) {
+    throw new Error(`Invalid category: ${data.category}`);
+  }
+  if (!VALID_URGENCY.includes(data.urgency)) {
+    throw new Error(`Invalid urgency: ${data.urgency}`);
+  }
+  if (!data.recommendedAction || !data.reasoning) {
+    throw new Error('Missing recommendedAction or reasoning');
+  }
+
+  return {
+    category: data.category,
+    urgency: data.urgency,
+    recommendedAction: String(data.recommendedAction).trim(),
+    reasoning: String(data.reasoning).trim(),
+  };
+}
+
+/** Make a single Groq call with the given model and return a validated result. */
+async function callModel(model, message) {
+  const response = await groq.chat.completions.create({
+    model,
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: buildUserPrompt(message) },
+    ],
+    temperature: 0.3,
+    response_format: { type: 'json_object' },
+  });
+
+  return parseAiResult(response.choices[0]?.message?.content);
+}
+
 /**
- * Categorize a customer support message using Groq AI
- * 
+ * Triage a customer support message through the layered fallback chain.
+ *
  * @param {string} message - The customer support message
- * @returns {Promise<{category: string, reasoning: string}>}
+ * @returns {Promise<{category: string, urgency: string, recommendedAction: string, reasoning: string, source: string, needsReview: boolean}>}
  */
 export async function categorizeMessage(message) {
-  try {
-    const response = await groq.chat.completions.create({
-      model: "openai/gpt-oss-120b",
-      messages: [
-        {
-          role: "user",
-          content: `Categorize this customer support message: ${message}`
-        }
-      ],
-      temperature: 0.7,
-    });
+  const attempts = [
+    { model: PRIMARY_MODEL, source: 'ai-primary' },
+    { model: PRIMARY_MODEL, source: 'ai-retry' },
+    { model: BACKUP_MODEL, source: 'ai-backup' },
+  ];
 
-    const content = response.choices[0].message.content;
-    
-    const lines = content.split('\n');
-    let category = "Unknown";
-    let reasoning = content;
-    
-    if (content.toLowerCase().includes('billing')) {
-      category = "Billing Issue";
-    } else if (content.toLowerCase().includes('technical') || content.toLowerCase().includes('bug')) {
-      category = "Technical Problem";
-    } else if (content.toLowerCase().includes('feature')) {
-      category = "Feature Request";
-    } else if (content.toLowerCase().includes('inquiry') || content.toLowerCase().includes('question')) {
-      category = "General Inquiry";
+  for (const attempt of attempts) {
+    try {
+      const result = await callModel(attempt.model, message);
+      return { ...result, source: attempt.source, needsReview: false };
+    } catch (error) {
+      console.warn(
+        `[categorize] ${attempt.source} (${attempt.model}) failed:`,
+        error.message
+      );
     }
-    
-    return {
-      category,
-      reasoning: content
-    };
-  } catch (error) {
-    console.warn('Groq API failed, using mock response:', error.message);
-    return getMockCategorization(message);
   }
+
+  // All AI attempts failed → local keyword fallback (upgraded in step b).
+  console.warn('[categorize] all AI attempts failed, using keyword fallback');
+  return getMockCategorization(message);
 }
 
 /**
