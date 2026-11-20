@@ -38,3 +38,8 @@ These need to be investigated next.
 
 - **Sometimes fails silently:** the UI shows "Results copied to clipboard!" but nothing is actually copied — the clipboard keeps its old content.
 - **When it does work:** the copied text does **not** include the original customer message.
+
+### Fixed
+- The copy handler now **awaits** `navigator.clipboard.writeText` and only shows the success message if the write actually succeeds; on failure it logs the error and tells the user to copy manually (no more false "copied!").
+- A **textarea + `execCommand('copy')` fallback** covers insecure contexts and older browsers.
+- The copied text now **includes the original customer message**, plus a "needs human review" note when the result came from the keyword fallback.

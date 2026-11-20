@@ -69,6 +69,40 @@ function AnalyzePage() {
     setResults(null)
   }
 
+  const handleCopy = async () => {
+    if (!results) return
+
+    const text =
+      `Customer Message:\n${results.message}\n\n` +
+      `Category: ${results.category}\n` +
+      `Urgency: ${results.urgency}\n` +
+      `Recommended Action: ${results.recommendedAction}\n` +
+      (results.needsReview ? `Note: Keyword-based estimate — needs human review\n` : '') +
+      `\nReasoning: ${results.reasoning}`
+
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        // Fallback for insecure contexts / older browsers.
+        const textarea = document.createElement('textarea')
+        textarea.value = text
+        textarea.style.position = 'fixed'
+        textarea.style.opacity = '0'
+        document.body.appendChild(textarea)
+        textarea.focus()
+        textarea.select()
+        const ok = document.execCommand('copy')
+        document.body.removeChild(textarea)
+        if (!ok) throw new Error('execCommand copy failed')
+      }
+      alert('Results copied to clipboard!')
+    } catch (error) {
+      console.error('Copy failed:', error)
+      alert('Could not copy to clipboard. Please copy the results manually.')
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4">
@@ -191,11 +225,7 @@ function AnalyzePage() {
 
             <div className="mt-6 pt-4 border-t border-gray-200">
               <button
-                onClick={() => {
-                  const text = `Category: ${results.category}\nUrgency: ${results.urgency}\nRecommendation: ${results.recommendedAction}\n\nReasoning: ${results.reasoning}`
-                  navigator.clipboard.writeText(text)
-                  alert('Results copied to clipboard!')
-                }}
+                onClick={handleCopy}
                 className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 font-semibold"
               >
                 📋 Copy Results
