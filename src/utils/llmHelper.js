@@ -135,110 +135,131 @@ export async function categorizeMessage(message) {
   return getMockCategorization(message);
 }
 
+/* ------------------------------------------------------------------ *
+ * Layer 4: smart keyword fallback (local, no network).
+ * Only runs when every AI attempt has failed. Always returns
+ * needsReview: true so these results are never mistaken for AI output.
+ * ------------------------------------------------------------------ */
+
+// Words that negate an urgency/impact cue when they appear right before it.
+const NEGATORS = ['not', 'no', "isn't", "aren't", "won't", 'never', 'without'];
+
+// Broad-scope phrases: combined with any impact cue, these escalate to High.
+const BROAD_SCOPE = [
+  'all customers', 'every customer', 'everyone', 'all users',
+  'nobody can', 'no one can', 'multiple customers', 'widespread',
+  'company-wide', 'company wide', 'entire',
+];
+
+// High-impact phrases — revenue/security/core-workflow blockage.
+const HIGH_IMPACT = [
+  "can't pay", 'cannot pay', 'payment failing', 'payments failing',
+  "can't log in", 'cannot log in', "can't login", 'locked out',
+  'outage', 'data loss', 'breach', 'charged twice', 'double charged',
+];
+
+// "checkout" only counts as High when paired with one of these failure words.
+const CHECKOUT_FAILURE = ['error', 'broken', 'failing', "can't", 'cannot', 'down', 'not working'];
+
+// Tone words: Medium on their own; High only if a real impact cue is also present.
+const TONE_WORDS = ['urgent', 'asap', 'emergency', 'deadline', 'critical'];
+
+// Medium-impact cues — a real problem, but narrow / with a workaround.
+const MEDIUM_IMPACT = [
+  'error', 'bug', 'broken', 'failing', 'slow', 'not working',
+  'issue', 'problem', "can't access", 'down',
+];
+
+/** True if `phrase` appears in `text` with a negator immediately before it. */
+function isNegated(text, phrase) {
+  const idx = text.indexOf(phrase);
+  if (idx === -1) return false;
+  const before = text.slice(0, idx).trim().split(/\s+/);
+  const prevWord = before[before.length - 1] || '';
+  return NEGATORS.includes(prevWord);
+}
+
+/** Presence check: whole-word match for the bare word "down" (so it does
+ * not match "download"), substring match for everything else. */
+function phrasePresent(text, phrase) {
+  if (phrase === 'down') return /\bdown\b/.test(text);
+  return text.includes(phrase);
+}
+
+/** True if `phrase` is present AND not directly negated. */
+function hasCue(text, phrase) {
+  return phrasePresent(text, phrase) && !isNegated(text, phrase);
+}
+
+function scoreUrgency(text) {
+  const broad = BROAD_SCOPE.some((p) => hasCue(text, p));
+
+  // "checkout" counts as high-impact only alongside a failure word.
+  const checkoutFailure =
+    text.includes('checkout') && CHECKOUT_FAILURE.some((w) => hasCue(text, w));
+
+  const hasHighImpact =
+    HIGH_IMPACT.some((p) => hasCue(text, p)) || checkoutFailure;
+
+  const hasMediumImpact = MEDIUM_IMPACT.some((p) => hasCue(text, p));
+  const hasTone = TONE_WORDS.some((p) => hasCue(text, p));
+
+  // Broad scope + any real impact → High.
+  if (hasHighImpact || (broad && (hasMediumImpact || hasTone))) return 'High';
+  // Tone words or a narrow real problem → Medium.
+  if (hasMediumImpact || hasTone) return 'Medium';
+  return 'Low';
+}
+
+function detectCategory(text) {
+  if (
+    text.includes('bill') || text.includes('payment') || text.includes('charge') ||
+    text.includes('invoice') || text.includes('refund') || text.includes('subscription')
+  ) return 'Billing Issue';
+
+  if (
+    text.includes('bug') || text.includes('error') || text.includes('broken') ||
+    text.includes('not working') || text.includes('crash') ||
+    text.includes('outage') || text.includes('checkout') || text.includes('login') ||
+    text.includes('log in') || text.includes('locked out') ||
+    text.includes('lock out') || /\bdown\b/.test(text)
+  ) return 'Technical Problem';
+
+  if (
+    text.includes('feature') || text.includes('suggestion') || text.includes('would like') ||
+    text.includes('request') || text.includes('wish') || text.includes('improve')
+  ) return 'Feature Request';
+
+  return 'General Inquiry';
+}
+
+const FALLBACK_ACTIONS = {
+  'Billing Issue': 'Route to the billing team to verify the account and charges',
+  'Technical Problem': 'Escalate to engineering to confirm scope and impact',
+  'Feature Request': 'Log the request for product review',
+  'General Inquiry': 'Reply with the relevant information or docs',
+};
+
 /**
- * Mock categorization for when API is unavailable
+ * Local keyword fallback. Negation-aware, scope-weighted, and always
+ * flagged for human review.
  */
 function getMockCategorization(message) {
-  const lowerMessage = message.toLowerCase();
-  
-  // Array of possible reasoning variations for each category
-  const reasoningVariations = {
-    billing: [
-      "Based on keywords related to payments and billing, this appears to be a billing-related inquiry. The customer may need assistance with account charges or payment issues.",
-      "This message contains billing terminology. The customer is likely experiencing issues with payments, invoices, or account charges.",
-      "The message references financial matters related to the customer's account. This suggests a billing or payment concern that requires attention.",
-    ],
-    technical: [
-      "This message describes technical difficulties or system errors. The customer is reporting functionality issues that may require engineering review.",
-      "Based on error-related keywords, this appears to be a technical support issue. The customer is experiencing problems with product functionality.",
-      "The message indicates a technical problem or bug. This requires investigation from the technical support team.",
-      "System-related issues are mentioned in this message. The customer needs technical assistance to resolve functionality problems.",
-    ],
-    feature: [
-      "This message suggests improvements or new functionality. The customer is providing product feedback and feature suggestions.",
-      "The customer is requesting enhancements to the product. This appears to be a feature request that should be reviewed by the product team.",
-      "Based on the language used, this seems to be a suggestion for product improvements rather than a support issue.",
-    ],
-    inquiry: [
-      "This appears to be a general question about the product or service. The customer is seeking information or clarification.",
-      "The message contains questions that don't indicate a specific problem. This is likely a general inquiry requiring informational support.",
-      "Based on the question format, this seems to be an information request rather than a technical or billing issue.",
-    ],
-    positive: [
-      "This message contains positive sentiment and appreciation. While not a support request, it may warrant acknowledgment.",
-      "The customer is expressing satisfaction or gratitude. This doesn't appear to require immediate support action.",
-    ],
-    ambiguous: [
-      "The message content is unclear or doesn't match standard support categories. Manual review may be needed for proper categorization.",
-      "This message doesn't contain clear indicators for automatic categorization. Human review recommended.",
-    ]
-  };
-  
-  // Helper to get random reasoning
-  const getRandomReasoning = (category) => {
-    const reasons = reasoningVariations[category];
-    return reasons[Math.floor(Math.random() * reasons.length)];
-  };
-  
-  // Billing-related detection
-  if (lowerMessage.includes('bill') || lowerMessage.includes('payment') || 
-      lowerMessage.includes('charge') || lowerMessage.includes('invoice') ||
-      lowerMessage.includes('credit card') || lowerMessage.includes('subscription') ||
-      lowerMessage.includes('refund') || lowerMessage.includes('cancel') && lowerMessage.includes('account')) {
-    return {
-      category: "Billing Issue",
-      reasoning: getRandomReasoning('billing')
-    };
-  }
-  
-  // Technical problem detection
-  if (lowerMessage.includes('bug') || lowerMessage.includes('error') || 
-      lowerMessage.includes('broken') || lowerMessage.includes('not working') ||
-      lowerMessage.includes('crash') || lowerMessage.includes('down') || 
-      lowerMessage.includes('server') || lowerMessage.includes('loading') ||
-      lowerMessage.includes('slow') || lowerMessage.includes('issue') ||
-      lowerMessage.includes('problem') && !lowerMessage.includes('no problem')) {
-    return {
-      category: "Technical Problem",
-      reasoning: getRandomReasoning('technical')
-    };
-  }
-  
-  // Feature request detection
-  if (lowerMessage.includes('feature') || lowerMessage.includes('add') && (lowerMessage.includes('please') || lowerMessage.includes('could')) ||
-      lowerMessage.includes('improve') || lowerMessage.includes('would like to see') ||
-      lowerMessage.includes('suggestion') || lowerMessage.includes('wish') ||
-      lowerMessage.includes('could you') && lowerMessage.includes('add') ||
-      lowerMessage.includes('enhancement') || lowerMessage.includes('would be great')) {
-    return {
-      category: "Feature Request",
-      reasoning: getRandomReasoning('feature')
-    };
-  }
-  
-  // Positive feedback detection
-  if ((lowerMessage.includes('thank') || lowerMessage.includes('thanks') || lowerMessage.includes('appreciate')) &&
-      !lowerMessage.includes('but') && !lowerMessage.includes('however')) {
-    return {
-      category: "General Inquiry",
-      reasoning: getRandomReasoning('positive')
-    };
-  }
-  
-  // Question/inquiry detection
-  if (lowerMessage.includes('how') || lowerMessage.includes('what') || 
-      lowerMessage.includes('when') || lowerMessage.includes('where') ||
-      lowerMessage.includes('can i') || lowerMessage.includes('is there') ||
-      lowerMessage.includes('?')) {
-    return {
-      category: "General Inquiry",
-      reasoning: getRandomReasoning('inquiry')
-    };
-  }
-  
-  // Fallback for ambiguous messages
+  const text = message.toLowerCase();
+
+  const urgency = scoreUrgency(text);
+  const category = detectCategory(text);
+  const recommendedAction = `${FALLBACK_ACTIONS[category]} — Needs human review`;
+
   return {
-    category: "General Inquiry",
-    reasoning: getRandomReasoning('ambiguous')
+    category,
+    urgency,
+    recommendedAction,
+    reasoning:
+      'AI triage was unavailable, so this was classified by a local keyword ' +
+      'fallback (negation- and scope-aware). Treat as a rough estimate and ' +
+      'have a human confirm the category and urgency.',
+    source: 'keyword-fallback',
+    needsReview: true,
   };
 }
