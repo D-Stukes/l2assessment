@@ -1,8 +1,15 @@
 import { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { categorizeMessage } from '../utils/llmHelper'
-import { calculateUrgency } from '../utils/urgencyScorer'
-import { getRecommendedAction } from '../utils/templates'
+
+// Human-readable label for which layer produced the result.
+// ai-primary and ai-retry both show simply "AI".
+const SOURCE_LABELS = {
+  'ai-primary': 'AI',
+  'ai-retry': 'AI',
+  'ai-backup': 'Backup AI',
+  'keyword-fallback': 'Keyword fallback',
+}
 
 function AnalyzePage() {
   const [message, setMessage] = useState('')
@@ -28,21 +35,18 @@ function AnalyzePage() {
     setResults(null)
     
     try {
-      // Run categorization (LLM call)
-      const { category, reasoning } = await categorizeMessage(message)
-      
-      // Calculate urgency (rule-based)
-      const urgency = calculateUrgency(message)
-      
-      // Get recommended action (template-based)
-      const recommendedAction = getRecommendedAction(category)
-      
+      // One call returns category, urgency, recommendedAction, reasoning,
+      // source and needsReview through the layered fallback chain.
+      const result = await categorizeMessage(message)
+
       const analysisResult = {
         message,
-        category,
-        urgency,
-        recommendedAction,
-        reasoning,
+        category: result.category,
+        urgency: result.urgency,
+        recommendedAction: result.recommendedAction,
+        reasoning: result.reasoning,
+        source: result.source,
+        needsReview: result.needsReview,
         timestamp: new Date().toISOString()
       }
 
@@ -127,8 +131,26 @@ function AnalyzePage() {
         {/* Results Section */}
         {results && (
           <div className="bg-white rounded-lg shadow-md p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Analysis Results</h2>
-            
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Analysis Results</h2>
+              {results.source && (
+                <span className="inline-flex items-center text-xs font-medium bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full">
+                  <span className={`mr-1.5 ${results.source === 'keyword-fallback' ? 'text-amber-500' : 'text-blue-500'}`}>●</span>
+                  Source: {SOURCE_LABELS[results.source] || results.source}
+                </span>
+              )}
+            </div>
+
+            {results.needsReview && (
+              <div className="flex items-start gap-2 bg-amber-50 border border-amber-300 text-amber-800 rounded-lg p-4 mb-4">
+                <span aria-hidden="true">⚠️</span>
+                <p className="text-sm">
+                  <span className="font-semibold">Needs human review</span> — AI was
+                  unavailable, so this is a keyword-based estimate. Confirm before acting.
+                </p>
+              </div>
+            )}
+
             <div className="space-y-4">
               <div>
                 <div className="text-sm font-semibold text-gray-600 mb-1">Category</div>
